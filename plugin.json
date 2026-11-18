@@ -1,0 +1,10 @@
+{
+  "name": "agy-capsule",
+  "displayName": "agy-capsule",
+  "version": "1.1.0",
+  "description": "Antigravity 底部状态胶囊插件：实时监控上下文窗口占用、全会话累计 Token 明细、对话持续时长、模型配额与生成吞吐率。",
+  "logo": "logo.svg",
+  "author": "edmondxie779",
+  "homepage": "https://github.com/edmondxie779/agy-capsule",
+  "repository": "https://github.com/edmondxie779/agy-capsule"
+}
