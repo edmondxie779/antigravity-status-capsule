@@ -14,6 +14,38 @@
 
 ---
 
+## 前置要求：启用启动参数（必读）
+
+底部状态胶囊通过本地 Chromium `DevToolsActivePort` 接口挂载到输入框栏，**启动 Antigravity 桌面端时需要带上 `--remote-debugging-port=0` 参数**：
+
+### macOS
+
+先完全退出客户端（`Cmd + Q`），然后在终端启动：
+
+```bash
+open -a Antigravity --args --remote-debugging-port=0
+```
+
+> **懒人技巧**：可以把别名写进 `~/.zshrc`，以后在终端输 `ag` 即可启动：
+> ```bash
+> echo "alias ag='open -a Antigravity --args --remote-debugging-port=0'" >> ~/.zshrc && source ~/.zshrc
+> ```
+
+### Windows
+
+1. 右键桌面或开始菜单上的 **Antigravity 快捷方式** -> 点击 **属性**。
+2. 在「**目标 (T)**」输入框的最末尾加一个**空格**和 `--remote-debugging-port=0`，例如：
+   ```text
+   "C:\Users\你的用户名\AppData\Local\Programs\Antigravity\Antigravity.exe" --remote-debugging-port=0
+   ```
+3. 点击 **确定** 保存，之后完全退出并双击该快捷方式启动即可。
+
+### Linux
+
+通过命令行 `antigravity --remote-debugging-port=0` 启动，或在桌面入口文件（`antigravity.desktop`）的 `Exec=` 行末尾添加 `--remote-debugging-port=0`。
+
+---
+
 ## 安装方法
 
 ### 方式一：Git 一键安装（推荐）
@@ -38,7 +70,7 @@ git clone https://github.com/edmondxie779/agy-capsule.git "$env:USERPROFILE\.gem
 2. 将压缩包内的 `agy-capsule` 文件夹解压放入插件目录（最终路径如下）：
    - **macOS / Linux**：`~/.gemini/config/plugins/agy-capsule/plugin.json`
    - **Windows**：`%USERPROFILE%\.gemini\config\plugins\agy-capsule\plugin.json`
-3. 打开 Antigravity 的 **Customizations -> Plugins** 页面，确认 `agy-capsule` 处于开启状态（若覆盖升级旧版，首次关闭再重新开启一次即可生效）。
+3. 打开 Antigravity 的 **Customizations -> Plugins** 页面，确认 `agy-capsule` 处于开启状态。
 
 ### 后续更新
 
@@ -47,6 +79,14 @@ git clone https://github.com/edmondxie779/agy-capsule.git "$env:USERPROFILE\.gem
 ```bash
 git -C ~/.gemini/config/plugins/agy-capsule pull
 ```
+
+---
+
+## 常见问题（FAQ）
+
+**Q：刚装好或者 Antigravity 自动更新版本后，底部胶囊不见了？**
+- 客户端在线更新后自动重启时不会携带 `--remote-debugging-port=0` 参数（如果之前用过汉化/增强补丁，客户端更新也会重置 `.app` 包），导致本地没有生成 `DevToolsActivePort` 文件。
+- **解决办法**：完全退出 Antigravity（macOS 按 `Cmd + Q` / Windows 退出托盘与窗口），再用上面带 `--remote-debugging-port=0` 的方式启动一次，后台插件会在 1 秒内自动把胶囊重新挂上去，无需重装或开关插件。
 
 ---
 
