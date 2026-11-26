@@ -83,9 +83,18 @@ function executablePath(proc) {
 
 function looksLikeAppMain(proc) {
   if (!proc.cmd || /--type=/.test(proc.cmd)) return false; // renderer/gpu/utility helpers
-  const exe = executablePath(proc);
-  return /^(antigravity|electron)(\.exe)?$/i.test(basename(exe));
+  return /^(antigravity|electron)(\.exe)?$/i.test(basename(executablePath(proc)));
 }
+
+// Higher is better. The Antigravity main process is the parent of the
+// language_server that spawns sidecars; a generic "Electron" binary is a weak match.
+function mainScore(proc, table) {
+  let score = /^antigravity(\.exe)?$/i.test(basename(executablePath(proc))) ? 2 : 1;
+  if (table.some((c) => c.ppid === proc.pid && /language_server/.test(c.cmd))) score += 4;
+  return score;
+}
+
+let lastCandidates = [];
 
 export function findAppMainProcess() {
   const override = Number(process.env.AGY_CAPSULE_MAIN_PID);
@@ -95,15 +104,21 @@ export function findAppMainProcess() {
     const p = byPid.get(override);
     return p ? { ...p, exe: executablePath(p), via: 'env' } : null;
   }
-  // Prefer an ancestor: the sidecar is spawned (directly or indirectly) by the app.
+  // Prefer an ancestor: the sidecar is spawned (via the language server) by the app.
   let cur = byPid.get(process.pid);
   for (let depth = 0; cur && depth < 16; depth++) {
     if (cur.pid !== process.pid && looksLikeAppMain(cur)) return { ...cur, exe: executablePath(cur), via: 'ancestor' };
     cur = byPid.get(cur.ppid);
   }
-  // Fallback (e.g. --diagnose from a terminal): a single unambiguous candidate.
-  const candidates = table.filter((p) => p.pid !== process.pid && looksLikeAppMain(p));
-  if (candidates.length === 1) return { ...candidates[0], exe: executablePath(candidates[0]), via: 'scan' };
+  // Fallback (e.g. --diagnose from a terminal): the single best-scoring candidate.
+  const candidates = table
+    .filter((p) => p.pid !== process.pid && looksLikeAppMain(p))
+    .map((p) => ({ ...p, exe: executablePath(p), score: mainScore(p, table) }))
+    .sort((a, b) => b.score - a.score);
+  lastCandidates = candidates;
+  if (candidates.length && (candidates.length === 1 || candidates[0].score > candidates[1].score)) {
+    return { ...candidates[0], via: 'scan' };
+  }
   return null;
 }
 
@@ -356,7 +371,9 @@ async function bootstrap(bridgeFile) {
       return { ok: false, fatal: true, reason: `inspector fuse ${fuse.state} (${fuse.reason || fuse.bin})` };
     }
     try {
-      process._debugProcess(main.pid);
+      if (typeof process._debugProcess === 'function') process._debugProcess(main.pid);
+      else if (process.platform !== 'win32') process.kill(main.pid, 'SIGUSR1');
+      else throw new Error('process._debugProcess unavailable');
     } catch (e) {
       return { ok: false, fatal: true, reason: 'signal failed: ' + e.message };
     }
@@ -462,6 +479,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
   const main = findAppMainProcess();
   if (!main) {
     console.log('✗ 未找到 Antigravity 主进程（请先打开 Antigravity；也可用 AGY_CAPSULE_MAIN_PID=<pid> 指定）');
+    if (lastCandidates.length) {
+      console.log('  候选进程（无法唯一确定）：');
+      for (const c of lastCandidates) console.log(`  - pid ${c.pid} score ${c.score}  ${c.exe}`);
+    }
     process.exit(1);
   }
   console.log(`✓ 主进程: pid ${main.pid} (${main.via})\n  ${main.exe}`);
