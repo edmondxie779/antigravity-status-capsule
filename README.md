@@ -80,7 +80,7 @@ git clone https://github.com/edmondxie779/antigravity-status-capsule.git "$env:U
 
 ### 方式二：下载 Release 压缩包安装（无需 Git）
 
-1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-v1.1.0.zip`。
+1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-v1.2.0.zip`。
 2. 将压缩包内的 `agy-capsule` 文件夹解压放入插件目录（最终路径如下）：
    - **macOS / Linux**：`~/.gemini/config/plugins/agy-capsule/plugin.json`
    - **Windows**：`%USERPROFILE%\.gemini\config\plugins\agy-capsule\plugin.json`
