@@ -28,6 +28,12 @@
 node ~/.gemini/config/plugins/agy-capsule/sidecars/agy_capsule/bridge.mjs --diagnose
 ```
 
+Windows（PowerShell）：
+
+```powershell
+node "$env:USERPROFILE\.gemini\config\plugins\agy-capsule\sidecars\agy_capsule\bridge.mjs" --diagnose
+```
+
 ### 备用方案：带 `--remote-debugging-port=0` 启动
 
 如果自检显示 fuse 为 `disabled`（某些版本可能在打包时关闭了该能力），插件会自动回退到 Chromium `DevToolsActivePort` 方式，此时需要在启动 Antigravity 时带上 `--remote-debugging-port=0` 参数（带了参数时插件也会优先使用这种方式）：
@@ -80,26 +86,75 @@ git clone https://github.com/edmondxie779/antigravity-status-capsule.git "$env:U
 
 ### 方式二：下载 Release 压缩包安装（无需 Git）
 
-1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-v1.2.0.zip`。
+> 压缩包安装**无法一键更新**，以后每个版本都要手动替换。建议优先使用方式一。
+
+1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-vX.Y.Z.zip`。
 2. 将压缩包内的 `agy-capsule` 文件夹解压放入插件目录（最终路径如下）：
    - **macOS / Linux**：`~/.gemini/config/plugins/agy-capsule/plugin.json`
    - **Windows**：`%USERPROFILE%\.gemini\config\plugins\agy-capsule\plugin.json`
 3. 打开 Antigravity 的 **Customizations -> Plugins** 页面，确认 `agy-capsule` 处于开启状态。
 
-### 后续更新
+---
 
-如果是通过 Git 克隆安装的，直接在插件目录拉取最新代码即可（`v1.1.0+` 会自动检测文件变化并在 5 秒内热重载）：
+## 更新插件
+
+### Git 安装的用户
+
+拉取最新代码即可，插件会在 5 秒内自动热重载，**无需重启 Antigravity**：
+
+**macOS / Linux：**
 
 ```bash
 git -C ~/.gemini/config/plugins/agy-capsule pull
 ```
+
+**Windows（PowerShell）：**
+
+```powershell
+git -C "$env:USERPROFILE\.gemini\config\plugins\agy-capsule" pull
+```
+
+### 压缩包安装的用户
+
+1. 下载最新版本的压缩包。
+2. **先删除**旧的 `agy-capsule` 文件夹，再把新的解压到原位置。不要把新旧两个版本同时放在插件目录里（包括改名备份），否则会被当成两个插件同时加载。
+3. 在 **Customizations -> Plugins** 里关闭再开启一次插件，或重启 Antigravity。
+
+### 从压缩包安装切换到 Git 安装（推荐，一次即可）
+
+切换后以后只需一条 `git pull` 就能更新。
+
+**macOS / Linux：**
+
+```bash
+rm -rf ~/.gemini/config/plugins/agy-capsule
+```
+
+```bash
+git clone https://github.com/edmondxie779/antigravity-status-capsule.git ~/.gemini/config/plugins/agy-capsule
+```
+
+**Windows（PowerShell）：**
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.gemini\config\plugins\agy-capsule"
+```
+
+```powershell
+git clone https://github.com/edmondxie779/antigravity-status-capsule.git "$env:USERPROFILE\.gemini\config\plugins\agy-capsule"
+```
+
+### 从 v1.1.x 升级到 v1.2.0+
+
+- 不再需要 `--remote-debugging-port=0` 启动参数，可以把之前改过的快捷方式 / alias 恢复成普通启动（保留也没影响，插件会优先使用它）。
+- 更新后如果胶囊没出现，先运行「启动方式」一节中的 `--diagnose` 自检。
 
 ---
 
 ## 常见问题（FAQ）
 
 **Q：刚装好或者 Antigravity 自动更新版本后，底部胶囊不见了？**
-- 先运行上面的 `--diagnose` 自检命令：
+- 先运行「启动方式」一节中的 `--diagnose` 自检命令：
   - 显示 `enabled`：通常几秒内会自动挂上；如果没有，在 Customizations -> Plugins 里关闭再开启一次插件。
   - 显示 `disabled`：当前版本不支持免参数模式，请按「备用方案」带 `--remote-debugging-port=0` 启动（客户端在线更新后自动重启时不会携带该参数，需要完全退出后重新用带参数的方式启动一次）。
 - 如果自检找不到主进程（例如使用了改名的客户端），可以用环境变量 `AGY_CAPSULE_MAIN_PID=<pid>` 指定。
