@@ -14,11 +14,25 @@
 
 ---
 
-## 前置要求：启用启动参数（必读）
+## 启动方式：通常无需任何启动参数
 
-底部状态胶囊通过本地 Chromium `DevToolsActivePort` 接口挂载到输入框栏，**启动 Antigravity 桌面端时需要带上 `--remote-debugging-port=0` 参数**：
+插件会在后台自动连接 Antigravity 主进程，**正常双击启动即可**，客户端自动更新重启后也会自动重新挂载：
 
-### macOS
+1. Sidecar 找到 Antigravity 主进程，并先读取应用二进制里的 Electron fuse，确认这个版本支持临时开启主进程调试接口（不支持时绝不发送信号）。
+2. 临时开启主进程的 Node inspector，在主进程内安装一个仅监听 `127.0.0.1`、带随机 token 的极简桥接服务（凭据文件权限 `0600`），然后**立即关闭 inspector**，整个过程不到一秒。
+3. 之后胶囊的渲染都通过这个桥接完成；Sidecar 热重启会直接复用桥接，App 退出时桥接随之消失。
+
+可以用下面的命令自检当前版本是否支持免参数模式（只读检测，不会对 App 做任何操作）：
+
+```bash
+node ~/.gemini/config/plugins/agy-capsule/sidecars/agy_capsule/bridge.mjs --diagnose
+```
+
+### 备用方案：带 `--remote-debugging-port=0` 启动
+
+如果自检显示 fuse 为 `disabled`（某些版本可能在打包时关闭了该能力），插件会自动回退到 Chromium `DevToolsActivePort` 方式，此时需要在启动 Antigravity 时带上 `--remote-debugging-port=0` 参数（带了参数时插件也会优先使用这种方式）：
+
+#### macOS
 
 先完全退出客户端（`Cmd + Q`），然后在终端启动：
 
@@ -31,7 +45,7 @@ open -a Antigravity --args --remote-debugging-port=0
 > echo "alias ag='open -a Antigravity --args --remote-debugging-port=0'" >> ~/.zshrc && source ~/.zshrc
 > ```
 
-### Windows
+#### Windows
 
 1. 右键桌面或开始菜单上的 **Antigravity 快捷方式** -> 点击 **属性**。
 2. 在「**目标 (T)**」输入框的最末尾加一个**空格**和 `--remote-debugging-port=0`，例如：
@@ -40,7 +54,7 @@ open -a Antigravity --args --remote-debugging-port=0
    ```
 3. 点击 **确定** 保存，之后完全退出并双击该快捷方式启动即可。
 
-### Linux
+#### Linux
 
 通过命令行 `antigravity --remote-debugging-port=0` 启动，或在桌面入口文件（`antigravity.desktop`）的 `Exec=` 行末尾添加 `--remote-debugging-port=0`。
 
@@ -66,7 +80,7 @@ git clone https://github.com/edmondxie779/antigravity-status-capsule.git "$env:U
 
 ### 方式二：下载 Release 压缩包安装（无需 Git）
 
-1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-v1.1.0.zip`。
+1. 前往 [Releases](https://github.com/edmondxie779/antigravity-status-capsule/releases) 下载最新的 `agy-capsule-v1.2.0.zip`。
 2. 将压缩包内的 `agy-capsule` 文件夹解压放入插件目录（最终路径如下）：
    - **macOS / Linux**：`~/.gemini/config/plugins/agy-capsule/plugin.json`
    - **Windows**：`%USERPROFILE%\.gemini\config\plugins\agy-capsule\plugin.json`
@@ -85,8 +99,10 @@ git -C ~/.gemini/config/plugins/agy-capsule pull
 ## 常见问题（FAQ）
 
 **Q：刚装好或者 Antigravity 自动更新版本后，底部胶囊不见了？**
-- 客户端在线更新后自动重启时不会携带 `--remote-debugging-port=0` 参数（如果之前用过汉化/增强补丁，客户端更新也会重置 `.app` 包），导致本地没有生成 `DevToolsActivePort` 文件。
-- **解决办法**：完全退出 Antigravity（macOS 按 `Cmd + Q` / Windows 退出托盘与窗口），再用上面带 `--remote-debugging-port=0` 的方式启动一次，后台插件会在 1 秒内自动把胶囊重新挂上去，无需重装或开关插件。
+- 先运行上面的 `--diagnose` 自检命令：
+  - 显示 `enabled`：通常几秒内会自动挂上；如果没有，在 Customizations -> Plugins 里关闭再开启一次插件。
+  - 显示 `disabled`：当前版本不支持免参数模式，请按「备用方案」带 `--remote-debugging-port=0` 启动（客户端在线更新后自动重启时不会携带该参数，需要完全退出后重新用带参数的方式启动一次）。
+- 如果自检找不到主进程（例如使用了改名的客户端），可以用环境变量 `AGY_CAPSULE_MAIN_PID=<pid>` 指定。
 
 ---
 
@@ -101,5 +117,6 @@ agy-capsule/
     └── agy_capsule/
         ├── sidecar.json            # 常驻 Sidecar 配置
         ├── server.mjs              # SQLite 遥测解析、缓存与配额聚合
-        └── deck_injector.mjs       # CDP 底部胶囊挂载与中文浮层渲染
+        ├── deck_injector.mjs       # 底部胶囊挂载与中文浮层渲染（CDP / 桥接两种通道）
+        └── bridge.mjs              # 免启动参数的主进程桥接（含 --diagnose 自检）
 ```

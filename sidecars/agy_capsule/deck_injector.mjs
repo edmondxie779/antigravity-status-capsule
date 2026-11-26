@@ -1,8 +1,11 @@
 // Deck injector: mounts a compact metrics strip into the Antigravity composer
-// footer (next to the model selector) via the local DevTools (CDP) endpoint.
+// footer (next to the model selector) via the local DevTools (CDP) endpoint,
+// or, when the app was launched without --remote-debugging-port, via the
+// flag-free bridge in bridge.mjs.
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { createBridgeTransport } from './bridge.mjs';
 
 const INTERVAL_MS = 1000;
 const DISCOVERY_INTERVAL_MS = 5000;
@@ -15,7 +18,9 @@ const PORT_FILE =
       ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Antigravity', 'DevToolsActivePort')
       : join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Antigravity', 'DevToolsActivePort');
 
-const sockets = new Map(); // targetId -> { id, ws, pending: Map, nextId, lastConvId, lastPayloadKey }
+const BRIDGE_FILE = join(dirname(PORT_FILE), 'agy-capsule-bridge.json');
+
+const sockets = new Map(); // targetId -> { id, ws, pending: Map, nextId }
 let lastDiscoveryMs = 0;
 let lastErr = '';
 
@@ -41,8 +46,6 @@ async function connect(target) {
     ws,
     pending: new Map(),
     nextId: 1,
-    lastConvId: null,
-    lastPayloadKey: '',
   };
   await new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('ws timeout')), 3000);
@@ -1282,11 +1285,11 @@ async function discoverPages(port) {
   }
   let targets;
   try {
-    targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2000) })).json();
     lastDiscoveryMs = now;
   } catch (e) {
-    logOnce('CDP list failed: ' + e.message);
-    return Array.from(sockets.values());
+    // A stale DevToolsActivePort (app relaunched without the flag) ends up here.
+    return sockets.size > 0 ? Array.from(sockets.values()) : null;
   }
   const pages = targets.filter(
     (t) => t.type === 'page' && /^https?:\/\/127\.0\.0\.1/.test(t.url || '') && t.webSocketDebuggerUrl
@@ -1313,16 +1316,58 @@ async function discoverPages(port) {
   return entries;
 }
 
-async function tick(inspect) {
-  const port = readCdpPort();
-  if (!port) return logOnce('DevToolsActivePort not found');
-  const entries = await discoverPages(port);
+// Transport 1: Chromium DevTools endpoint (app launched with --remote-debugging-port).
+const cdpTransport = {
+  name: 'cdp',
+  async listPages() {
+    const port = readCdpPort();
+    if (!port) return null;
+    const entries = await discoverPages(port);
+    return entries && entries.map((e) => ({ id: e.id }));
+  },
+  async evaluate(id, expr) {
+    const entry = sockets.get(id);
+    return entry ? evaluate(entry, expr) : undefined;
+  },
+  drop(id) {
+    sockets.delete(id);
+  },
+};
 
-  for (const entry of entries) {
+// Transport 2: flag-free bridge installed into the Electron main process.
+const bridgeTransport = createBridgeTransport({ bridgeFile: BRIDGE_FILE, log: logOnce });
+
+const pageState = new Map(); // `${transport}:${pageId}` -> { lastConvId, lastPayloadKey }
+let activeTransportName = '';
+
+async function pickTransport() {
+  for (const t of [cdpTransport, bridgeTransport]) {
+    const pages = await t.listPages();
+    if (pages) return { transport: t, pages };
+  }
+  return null;
+}
+
+async function tick(inspect) {
+  const picked = await pickTransport();
+  if (!picked) return logOnce('no transport: DevToolsActivePort unavailable and bridge not ready');
+  const { transport, pages } = picked;
+  if (transport.name !== activeTransportName) {
+    activeTransportName = transport.name;
+    console.log('[deck] transport:', transport.name);
+  }
+
+  const liveKeys = new Set(pages.map((p) => transport.name + ':' + p.id));
+  for (const key of pageState.keys()) if (!liveKeys.has(key)) pageState.delete(key);
+
+  for (const page of pages) {
+    const key = transport.name + ':' + page.id;
+    const state = pageState.get(key) || { lastConvId: null, lastPayloadKey: '' };
+    pageState.set(key, state);
     try {
       const probe =
-        (await evaluate(
-          entry,
+        (await transport.evaluate(
+          page.id,
           'location.pathname + "|" + (window.__deckVer || "") + "|" + (window.__deckOwnerTs || 0) + "|" + (document.getElementById("deck-metrics-strip") ? 1 : 0)'
         )) || '';
       const [path = '', mountedVer = '', ownerStr = '0', hasDom = '0'] = probe.split('|');
@@ -1340,7 +1385,7 @@ async function tick(inspect) {
       const viewJson = JSON.stringify(view);
       const needInstall = mountedVer !== DECK_VER || hasDom !== '1' || ownerTs !== INSTANCE_TS;
 
-      if (!needInstall && entry.lastConvId === convId && entry.lastPayloadKey === viewJson) {
+      if (!needInstall && state.lastConvId === convId && state.lastPayloadKey === viewJson) {
         continue;
       }
 
@@ -1348,18 +1393,18 @@ async function tick(inspect) {
         ? `(window.__deckMount = ${pageMount.toString()}, window.__deckVer = ${JSON.stringify(DECK_VER)}, window.__deckMount(${viewJson}))`
         : `window.__deckMount(${viewJson})`;
 
-      const res = await evaluate(entry, expr);
+      const res = await transport.evaluate(page.id, expr);
       if (res === 'superseded') {
         process.exit(0);
       }
       if (res && res.startsWith('ok')) {
-        entry.lastConvId = convId;
-        entry.lastPayloadKey = viewJson;
+        state.lastConvId = convId;
+        state.lastPayloadKey = viewJson;
         lastErr = '';
       }
     } catch (e) {
-      sockets.delete(entry.id);
-      logOnce('page ' + entry.id + ': ' + e.message);
+      transport.drop?.(page.id);
+      logOnce('page ' + page.id + ': ' + e.message);
     }
   }
 }
@@ -1377,5 +1422,5 @@ export function startDeckInjector(inspect) {
       busy = false;
     }
   }, INTERVAL_MS);
-  console.log('[deck] injector v' + DECK_VER + ' started, port file:', PORT_FILE);
+  console.log('[deck] injector v' + DECK_VER + ' started, port file:', PORT_FILE, 'bridge file:', BRIDGE_FILE);
 }
