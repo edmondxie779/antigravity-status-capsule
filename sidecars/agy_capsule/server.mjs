@@ -7,7 +7,7 @@ import { startDeckInjector } from './deck_injector.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const WATCHED_FILES = [__filename, join(__dirname, 'deck_injector.mjs')];
+const WATCHED_FILES = [__filename, join(__dirname, 'deck_injector.mjs'), join(__dirname, 'bridge.mjs')];
 const INITIAL_MTIMES = new Map(
   WATCHED_FILES.map((p) => {
     try {
